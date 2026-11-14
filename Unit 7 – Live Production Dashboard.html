@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Unit 7 – Live Production Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f4f5f7;--card:#fff;--tx:#1b1f24;--mu:#6b7280;--bd:#e3e6ea;--ac:#2563eb;--ok:#15803d;--wa:#b45309;--bad:#b91c1c;--in:#f1f5f9}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1318;--card:#181e26;--tx:#e8ecf1;--mu:#93a0b0;--bd:#2a323d;--ac:#60a5fa;--ok:#4ade80;--wa:#fbbf24;--bad:#f87171;--in:#222a35}}
+:root[data-theme="dark"]{--bg:#0f1318;--card:#181e26;--tx:#e8ecf1;--mu:#93a0b0;--bd:#2a323d;--ac:#60a5fa;--ok:#4ade80;--wa:#fbbf24;--bad:#f87171;--in:#222a35}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:12px}
+h1{font-size:18px;margin:0}header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.sub{color:var(--mu);font-size:12px}.live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:4px}
+button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
+button.g{background:var(--in);color:var(--tx);border:1px solid var(--bd)}button.d{background:var(--bad)}
+.tot{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px}
+.k{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 10px}.k b{display:block;font-size:20px}.k span{font-size:11px;color:var(--mu)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px;margin-bottom:12px}
+.ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.ch h2{margin:0;font-size:17px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:8px}
+.meta label{font-size:11px;color:var(--mu);display:block}.meta div{font-weight:600}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+.kp div{background:var(--in);border-radius:8px;padding:6px 8px}.kp b{font-size:18px;display:block}.kp span{font-size:11px;color:var(--mu)}
+.sc{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:560px;font-size:13px}
+th,td{border-bottom:1px solid var(--bd);padding:4px;text-align:center;white-space:nowrap}th{color:var(--mu);font-weight:500;font-size:11px}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
+input,select{background:var(--in);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px;font:inherit;max-width:100%}
+td input{width:46px;text-align:center}.meta input{width:100%}
+.ok{color:var(--ok)}.wa{color:var(--wa)}.bad{color:var(--bad)}
+.pan{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)}
+.note{font-size:11px;color:var(--mu);margin-top:6px}[hidden]{display:none!important}
+</style></head><body>
+<header><div><h1>Unit 7 – Live Production Dashboard</h1><div class="sub"><span class="live"></span><span id="st">Connecting…</span> · <span id="dt"></span></div></div>
+<div><button class="g" id="bs" hidden>Factory Settings</button> <button class="g" id="be" hidden>Edit mode: OFF</button></div></header>
+<div id="set" class="pan" hidden></div>
+<div class="tot" id="tot"></div><div id="ln"></div>
+<div class="note">Formulas — Available min = Workers × 60 × Hours worked · Earned min = Output × SMV · Efficiency % = Earned ÷ Available × 100 · Lost time = Available − Earned (min) · Hours worked = hours with output entered.</div>
+<script>
+const LINES=['E1','E2','E3','E4','E5'],HRS=[8,9,10,11,12,13,14,15,16,17];
+const DEF=['—','Open stitch','Skipped stitch','Broken stitch','Puckering','Oil stain','Uneven hem','Loose thread','Wrong measurement','Other'];
+const today=new Date().toISOString().slice(0,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num=v=>(v===null||v===undefined||v==='')?0:+v||0;
+const blank=()=>({workers:0,model:'',smv:0,defect:'—',out:Array(10).fill(null),rep:Array(10).fill(null),dirty:Array(10).fill(null),sec:Array(10).fill(null)});
+let db,user,myId=null,isOwner=false,edit=false,people={},names={},data={},pending=false,showSet=false;
+const $=id=>document.getElementById(id);
+const isAdmin=()=>isOwner||!!(people[myId]&&people[myId].admin);
+const sum=a=>(a||[]).reduce((t,v)=>t+num(v),0);
+function calc(d){const hrs=(d.out||[]).filter(v=>v!==null&&v!=='').length,out=sum(d.out),avail=num(d.workers)*60*hrs,earn=out*num(d.smv);
+ return{hrs,out,rep:sum(d.rep),dirty:sum(d.dirty),sec:sum(d.sec),avail,earn,eff:avail?earn/avail*100:0,lost:Math.max(0,avail-earn)}}
+const effCls=e=>e>=65?'ok':e>=45?'wa':'bad';
+function fld(l,k,v,type){return isAdmin()&&edit?`<input data-l="${l}" data-k="${k}" type="${type||'text'}" value="${esc(v)}">`:esc(v||'—')}
+function cell(l,k,i,v){return isAdmin()&&edit?`<input data-l="${l}" data-k="${k}" data-i="${i}" type="number" min="0" value="${v??''}">`:(v??'')}
+function render(){
+ if(document.activeElement&&document.activeElement.tagName.match(/INPUT|SELECT/)){pending=true;return}pending=false;
+ let T={w:0,out:0,rep:0,dirty:0,sec:0,av:0,ea:0,lost:0};
+ $('ln').innerHTML=LINES.map(l=>{const d=Object.assign(blank(),data[l]||{}),c=calc(d);
+  T.w+=num(d.workers);T.out+=c.out;T.rep+=c.rep;T.dirty+=c.dirty;T.sec+=c.sec;T.av+=c.avail;T.ea+=c.earn;T.lost+=c.lost;
+  const row=(n,k)=>`<tr><td>${n}</td>${HRS.map((h,i)=>`<td>${cell(l,k,i,d[k][i])}</td>`).join('')}<td><b>${c[{out:'out',rep:'rep',dirty:'dirty',sec:'sec'}[k]]}</b></td></tr>`;
+  const def=isAdmin()&&edit?`<select data-l="${l}" data-k="defect">${DEF.map(x=>`<option ${x===d.defect?'selected':''}>${x}</option>`).join('')}</select>`:esc(d.defect);
+  return`<div class="card"><div class="ch"><h2>Line ${l}</h2><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b></div>
+  <div class="meta"><div><label>Workers</label>${fld(l,'workers',d.workers,'number')}</div><div><label>Model</label>${fld(l,'model',d.model)}</div>
+  <div><label>SMV (min)</label>${fld(l,'smv',d.smv,'number')}</div><div><label>Main defect</label>${def}</div></div>
+  <div class="kp"><div><b>${c.out}</b><span>Output</span></div><div><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b><span>Efficiency</span></div>
+  <div><b>${c.lost.toFixed(0)} min</b><span>Lost time (${(c.lost/60).toFixed(1)} h)</span></div></div>
+  <div class="sc"><table><tr><th>Hour</th>${HRS.map(h=>`<th>${h}:00</th>`).join('')}<th>Total</th></tr>
+  ${row('Output','out')}${row('Repairs','rep')}${row('Dirty','dirty')}${row('2nd grade','sec')}</table></div>
+  <div class="note">Hours worked: ${c.hrs} · Available ${c.avail} min · Earned ${c.earn.toFixed(0)} min</div></div>`}).join('');
+ const eff=T.av?T.ea/T.av*100:0;
+ $('tot').innerHTML=[['Workers',T.w],['Output',T.out],['Efficiency',eff.toFixed(1)+'%'],['Lost time',T.lost.toFixed(0)+' min'],['Repairs',T.rep],['Dirty',T.dirty],['2nd grade',T.sec]].map(([a,b])=>`<div class="k"><b>${b}</b><span>Unit 7 · ${a}</span></div>`).join('');
+ $('bs').hidden=!isAdmin();$('be').hidden=!isAdmin();$('be').textContent='Edit mode: '+(edit?'ON':'OFF');
+ renderSet()}
+function renderSet(){const s=$('set');s.hidden=!(showSet&&isAdmin());if(s.hidden)return;
+ if(s.contains(document.activeElement)&&document.activeElement.tagName==='INPUT')return;
+ const ids=Object.keys(people);
+ s.innerHTML=`<b>Factory Settings – People</b><div class="note">Owner is always an admin. Admins can edit all line data. Others have view-only access.</div>
+ ${ids.map(id=>`<div class="row"><span>${esc(names[id]||'User')} ${people[id].admin?'<b class="ok">· Admin</b>':'· Viewer'}</span><span><button class="g" data-adm="${id}">${people[id].admin?'Remove admin':'Make admin'}</button> <button class="d" data-rm="${id}">Delete</button></span></div>`).join('')||'<div class="note">No people added yet.</div>'}
+ <div style="margin-top:8px"><input id="q" placeholder="Search person by name…" style="width:70%"> <button id="sq">Search</button></div><div id="res"></div>`}
+async function savePeople(){try{await db.doc('settings/people').set({members:people})}catch(e){alert('Save failed: '+(e.message||e.code))}}
+async function saveLine(l,k,i,val){const d=Object.assign(blank(),data[l]||{});
+ if(i!==undefined&&i!==''){const a=d[k].slice();a[i]=val===''?null:+val;d[k]=a}else d[k]=(k==='workers'||k==='smv')?+val||0:val;
+ d.date=today;data[l]=d;try{await db.doc(`lines/${today}_${l}`).set(d)}catch(e){alert('Save failed: '+(e.message||e.code))}}
+document.addEventListener('change',e=>{const t=e.target;if(t.dataset.l){saveLine(t.dataset.l,t.dataset.k,t.dataset.i,t.value)}});
+document.addEventListener('focusout',()=>setTimeout(()=>{if(pending)render()},50));
+document.addEventListener('click',async e=>{const t=e.target;
+ if(t.id==='be'){edit=!edit;render()}
+ if(t.id==='bs'){showSet=!showSet;render()}
+ if(t.dataset.adm){people[t.dataset.adm].admin=!people[t.dataset.adm].admin;await savePeople();render()}
+ if(t.dataset.rm){delete people[t.dataset.rm];await savePeople();render()}
+ if(t.dataset.add){people[t.dataset.add]={admin:false};names[t.dataset.add]=t.dataset.n;await savePeople();render()}
+ if(t.id==='sq'){try{const h=await user.search($('q').value);$('res').innerHTML=(h||[]).map(x=>`<div class="row"><span>${esc(x.name)}</span><button data-add="${esc(x.id)}" data-n="${esc(x.name)}">Add</button></div>`).join('')||'<div class="note">No results.</div>'}catch(_){$('res').innerHTML='<div class="note">Search unavailable.</div>'}}});
+async function resolveNames(){const ids=Object.keys(people);if(!ids.length)return;try{const p=await user.profiles(ids);ids.forEach(i=>{if(p[i]&&p[i].name)names[i]=p[i].name})}catch(_){}}
+(async()=>{$('dt').textContent=today;render();
+ try{db=await claude.use('db');user=await claude.use('user')}catch(_){}
+ if(!db){$('st').textContent='Live sync unavailable – sign in to view';return}
+ try{const me=await user.me();myId=me.id;isOwner=await user.isOwner()}catch(_){try{isOwner=await user.isOwner()}catch(__){}}
+ const t=setTimeout(()=>{$('st').textContent='Slow connection…'},10000);
+ LINES.forEach(l=>db.doc(`lines/${today}_${l}`).onSnapshot(s=>{clearTimeout(t);$('st').textContent='Live';data[l]=s.exists?s.data():null;render()},e=>{$('st').textContent='Sync error: '+e.code}));
+ db.doc('settings/people').onSnapshot(async s=>{people=(s.exists&&s.data().members)||{};await resolveNames();render()},()=>{});
+ render()})();
+</script></body></html>
