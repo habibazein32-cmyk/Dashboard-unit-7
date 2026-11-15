@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>Unit 7 – Live Production Dashboard</title>
+<html lang="en"><head><meta charset="utf-8"><title>Factory – Live Production Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -30,13 +30,18 @@ td input{width:46px;text-align:center}.meta input{width:100%}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)}
 .note{font-size:11px;color:var(--mu);margin-top:6px}[hidden]{display:none!important}
 .nt{white-space:normal;min-width:90px;max-width:130px;font-size:11px;color:var(--mu)}td input.ni{width:110px;text-align:left}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px}.tabs button{background:var(--in);color:var(--tx);border:1px solid var(--bd);white-space:nowrap}.tabs button.on{background:var(--ac);color:#fff}
+.ch{cursor:pointer}.ch small{color:var(--mu);font-weight:400;font-size:12px;margin-left:6px}.ucard{cursor:pointer}
+td.brk,th.brk{background:var(--in);color:var(--mu);font-size:10px;min-width:44px}
+textarea{width:100%;min-height:76px;background:var(--in);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px;font:inherit}
+.stl{font-size:11px;color:var(--mu);margin:2px 0}.stt{white-space:pre-wrap;margin-bottom:8px;background:var(--in);border-radius:8px;padding:6px 8px;min-height:30px}
 </style></head><body>
 <div id="auth" class="pan" hidden></div><div id="app" hidden>
-<header><div><h1>Unit 7 – Live Production Dashboard</h1><div class="sub"><span class="live"></span><span id="st">Connecting…</span> · <span id="dt"></span></div></div>
+<header><div><h1>Factory – Live Production Dashboard</h1><div class="sub"><span class="live"></span><span id="st">Connecting…</span> · <span id="dt"></span></div></div>
 <div><button class="g" id="bs" hidden>Factory Settings</button> <button class="g" id="be" hidden>Edit mode: OFF</button></div></header>
 <div id="set" class="pan" hidden></div>
-<div class="tot" id="tot"></div><div id="ln"></div>
-<div class="note">Formulas — Available min = Workers × 450 (7.5 h full day) · Earned min = Output × SMV · Efficiency % = Earned ÷ Available × 100 · Lost time = Available − Earned (min) · Hours worked = fixed 7.5 h for everyone. Break 12:00–12:30.</div>
+<div id="tabs" class="tabs"></div><div class="tot" id="tot"></div><div id="ln"></div>
+<div class="note">Formulas — Available min = Workers × 450 (7.5 h full day) · Earned min = Output × SMV · Efficiency % = Earned ÷ Available × 100 · Lost time = Available − Earned (min) · Hours worked = fixed 7.5 h for everyone. Break 12:30–1:00 (not counted as work).</div>
 
 <div class="note" id="who"></div></div>
 <script type="module">
@@ -46,58 +51,62 @@ import{getFirestore,doc,getDoc,setDoc,deleteDoc,collection,onSnapshot}from"https
 const BOOT_ADMIN="habibazein32@gmail.com";
 const app=initializeApp({apiKey:"AIzaSyDSZ50g_EX0l1Vn1ksxwM_qW7BeRAxeZDg",authDomain:"dashboard-unit-7.firebaseapp.com",projectId:"dashboard-unit-7",storageBucket:"dashboard-unit-7.firebasestorage.app",messagingSenderId:"44229398905",appId:"1:44229398905:web:8367c63cb0b66cfb041fa8"});
 const auth=getAuth(app),db=getFirestore(app);
-const LINES=['E1','E2','E3','E4','E5'],HRS=[9,10,11,12,13,14,15,16],DUR=[60,60,60,30,60,60,60,60],TOT=450,LBL=['9:00','10:00','11:00','12:30–1:00','1:00','2:00','3:00','4:00'];
-const DEF=['—','Open stitch','Skipped stitch','Broken stitch','Puckering','Oil stain','Uneven hem','Loose thread','Wrong measurement','Other'];
+const UNITS={A:Array.from({length:13},(_,i)=>'A'+(i+7)),B:[1,2,3,4,5,6].map(n=>'B'+n),C:[1,2,3,4,5,6].map(n=>'C'+n),E:[1,2,3,4,5].map(n=>'E'+n)};
+const ALL=Object.values(UNITS).flat();
+const HRS=[9,10,11,12,13,14,15,16],LBL=['9:00','10:00','11:00','12:00','1:00','2:00','3:00','4:00'],TOT=450;
 const today=new Date().toISOString().slice(0,10);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>(v===null||v===undefined||v==='')?0:+v||0;
-const blank=()=>({workers:0,model:'',smv:0,defect:'—',out:Array(8).fill(null),rep:Array(8).fill(null),dirty:Array(8).fill(null),sec:Array(8).fill(null),note:Array(8).fill('')});
-const get=l=>{const d=Object.assign(blank(),data[l]||{});['out','rep','dirty','sec','note'].forEach(k=>{let a=(d[k]||[]).slice();if(a.length===10)a=a.slice(1,9);while(a.length<8)a.push(k==='note'?'':null);d[k]=a.slice(0,8)});return d};
-let me=null,admin=false,edit=false,people={},data={},pending=false,showSet=false,unsubs=[];
+const blank=()=>({workers:0,model:'',smv:0,defect:'',status:'',out:Array(8).fill(null),rep:Array(8).fill(null),dirty:Array(8).fill(null),sec:Array(8).fill(null),note:Array(8).fill('')});
+let data={},me=null,admin=false,manager=false,edit=false,people={},pending=false,showSet=false,unsubs=[],tab='F',op=new Set();
 const $=id=>document.getElementById(id);
-const isAdmin=()=>admin;
+const get=l=>{const d=Object.assign(blank(),data[l]||{});['out','rep','dirty','sec','note'].forEach(k=>{let a=(d[k]||[]).slice();while(a.length<8)a.push(k==='note'?'':null);d[k]=a.slice(0,8)});return d};
 const sum=a=>(a||[]).reduce((t,v)=>t+num(v),0);
 function calc(d){const hrs=7.5,out=sum(d.out),avail=num(d.workers)*TOT,earn=out*num(d.smv);
  return{hrs,out,rep:sum(d.rep),dirty:sum(d.dirty),sec:sum(d.sec),avail,earn,eff:avail?earn/avail*100:0,lost:Math.max(0,avail-earn)}}
 const effCls=e=>e>=65?'ok':e>=45?'wa':'bad';
-function fld(l,k,v,type){return admin&&edit?`<input data-l="${l}" data-k="${k}" type="${type||'text'}" value="${esc(v)}">`:esc(v||'—')}
-function cell(l,k,i,v){return admin&&edit?`<input data-l="${l}" data-k="${k}" data-i="${i}" type="number" min="0" value="${v??''}">`:(v??'')}
+function agg(ids){const t={w:0,out:0,rep:0,dirty:0,sec:0,av:0,ea:0,lost:0};ids.forEach(l=>{const d=get(l),c=calc(d);t.w+=num(d.workers);t.out+=c.out;t.rep+=c.rep;t.dirty+=c.dirty;t.sec+=c.sec;t.av+=c.avail;t.ea+=c.earn;t.lost+=c.lost});t.eff=t.av?t.ea/t.av*100:0;return t}
+const kpis=(t,lab)=>[['Workers',t.w],['Output',t.out],['Efficiency',t.eff.toFixed(1)+'%'],['Lost time',t.lost.toFixed(0)+' min'],['Repairs',t.rep],['Dirty',t.dirty],['2nd grade',t.sec]].map(([a,b])=>`<div class="k"><b>${b}</b><span>${lab} · ${a}</span></div>`).join('');
+const fld=(l,k,v,type)=>admin&&edit?`<input data-l="${l}" data-k="${k}" type="${type||'text'}" value="${esc(v)}">`:esc(v||'—');
+const cell=(l,k,i,v)=>admin&&edit?`<input data-l="${l}" data-k="${k}" data-i="${i}" type="number" min="0" value="${v??''}">`:(v??'');
+const cols=f=>HRS.map((h,i)=>f(i)+(i===3?'<td class="brk"></td>':'')).join('');
+function card(l){const d=get(l),c=calc(d),o=op.has(l);
+ const st=admin&&edit?`<textarea data-l="${l}" data-k="status" placeholder="Write the status of this line…">${esc(d.status)}</textarea>`:`<div class="stt">${esc(d.status)||'—'}</div>`;
+ let body='';
+ if(o){const row=(n,k)=>`<tr><td>${n}</td>${cols(i=>`<td>${cell(l,k,i,d[k][i])}</td>`)}<td><b>${c[k]}</b></td></tr>`;
+  const note=`<tr><td>Note</td>${cols(i=>`<td class="nt">${admin&&edit?`<input class="ni" data-l="${l}" data-k="note" data-i="${i}" type="text" value="${esc(d.note[i])}">`:esc(d.note[i])}</td>`)}<td></td></tr>`;
+  body=`<div class="meta"><div><label>Workers</label>${fld(l,'workers',d.workers,'number')}</div><div><label>Model</label>${fld(l,'model',d.model)}</div><div><label>SMV (min)</label>${fld(l,'smv',d.smv,'number')}</div><div><label>Main defect</label>${fld(l,'defect',d.defect)}</div></div>
+  <div class="kp"><div><b>${c.out}</b><span>Output</span></div><div><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b><span>Efficiency</span></div><div><b>${c.lost.toFixed(0)} min</b><span>Lost time (${(c.lost/60).toFixed(1)} h)</span></div></div>
+  <div class="sc"><table><tr><th>Hour</th>${cols(i=>`<th>${LBL[i]}</th>`).replace('<td class="brk"></td>','<th class="brk">Break<br>12:30–1</th>')}<th>Total</th></tr>${row('Output','out')}${row('Repairs','rep')}${row('Dirty','dirty')}${row('2nd grade','sec')}${note}</table></div>
+  <div class="note">Hours worked: 7.5 · Available ${c.avail} min · Earned ${c.earn.toFixed(0)} min</div>`}
+ return`<div class="card"><div class="ch" data-tg="${l}"><h2>Line ${l} <small>${esc(d.model)}</small></h2><span><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b> ${o?'▴':'▾'}</span></div>
+ <div class="stl">Status for line</div>${st}${body}</div>`}
 function render(){
- if(document.activeElement&&document.activeElement.tagName.match(/INPUT|SELECT/)&&!document.activeElement.closest('#auth')){pending=true;return}pending=false;
- let T={w:0,out:0,rep:0,dirty:0,sec:0,av:0,ea:0,lost:0};
- $('ln').innerHTML=LINES.map(l=>{const d=get(l),c=calc(d);
-  T.w+=num(d.workers);T.out+=c.out;T.rep+=c.rep;T.dirty+=c.dirty;T.sec+=c.sec;T.av+=c.avail;T.ea+=c.earn;T.lost+=c.lost;
-  const row=(n,k)=>`<tr><td>${n}</td>${HRS.map((h,i)=>`<td>${cell(l,k,i,d[k][i])}</td>`).join('')}<td><b>${c[k]}</b></td></tr>`;
-  const noteRow=`<tr><td>Note</td>${HRS.map((h,i)=>`<td class="nt">${admin&&edit?`<input class="ni" data-l="${l}" data-k="note" data-i="${i}" type="text" value="${esc(d.note[i])}">`:esc(d.note[i])}</td>`).join('')}<td></td></tr>`;
-  const def=admin&&edit?`<select data-l="${l}" data-k="defect">${DEF.map(x=>`<option ${x===d.defect?'selected':''}>${x}</option>`).join('')}</select>`:esc(d.defect);
-  return`<div class="card"><div class="ch"><h2>Line ${l}</h2><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b></div>
-  <div class="meta"><div><label>Workers</label>${fld(l,'workers',d.workers,'number')}</div><div><label>Model</label>${fld(l,'model',d.model)}</div>
-  <div><label>SMV (min)</label>${fld(l,'smv',d.smv,'number')}</div><div><label>Main defect</label>${def}</div></div>
-  <div class="kp"><div><b>${c.out}</b><span>Output</span></div><div><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b><span>Efficiency</span></div>
-  <div><b>${c.lost.toFixed(0)} min</b><span>Lost time (${(c.lost/60).toFixed(1)} h)</span></div></div>
-  <div class="sc"><table><tr><th>Hour</th>${LBL.map(x=>`<th>${x}</th>`).join('')}<th>Total</th></tr>
-  ${row('Output','out')}${row('Repairs','rep')}${row('Dirty','dirty')}${row('2nd grade','sec')}${noteRow}</table></div>
-  <div class="note">Hours worked: ${c.hrs} · Available ${c.avail} min · Earned ${c.earn.toFixed(0)} min</div></div>`}).join('');
- const eff=T.av?T.ea/T.av*100:0;
- $('tot').innerHTML=[['Workers',T.w],['Output',T.out],['Efficiency',eff.toFixed(1)+'%'],['Lost time',T.lost.toFixed(0)+' min'],['Repairs',T.rep],['Dirty',T.dirty],['2nd grade',T.sec]].map(([a,b])=>`<div class="k"><b>${b}</b><span>Unit 7 · ${a}</span></div>`).join('');
- $('bs').hidden=!admin;$('be').hidden=!admin;$('be').textContent='Edit mode: '+(edit?'ON':'OFF');
- $('who').innerHTML=esc(me.email)+' · '+(admin?'Admin':'Viewer')+' · <a href="#" id="so">Sign out</a>';
+ if(document.activeElement&&document.activeElement.tagName.match(/INPUT|SELECT|TEXTAREA/)&&!document.activeElement.closest('#auth')){pending=true;return}pending=false;
+ $('tabs').innerHTML=[['F','Factory'],['A','Unit A'],['B','Unit B'],['C','Unit C'],['E','Unit E']].map(([k,n])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${n}</button>`).join('');
+ if(tab==='F'){$('tot').innerHTML=kpis(agg(ALL),'Factory');
+  $('ln').innerHTML=Object.keys(UNITS).map(u=>{const t=agg(UNITS[u]);return`<div class="card ucard" data-tab="${u}"><div class="ch" data-tab="${u}"><h2>Unit ${u} <small>${UNITS[u].length} lines</small></h2><b class="${effCls(t.eff)}">${t.eff.toFixed(1)}%</b></div><div class="kp"><div><b>${t.out}</b><span>Output</span></div><div><b>${t.w}</b><span>Workers</span></div><div><b>${t.lost.toFixed(0)} min</b><span>Lost time</span></div></div></div>`}).join('')}
+ else{$('tot').innerHTML=kpis(agg(UNITS[tab]),'Unit '+tab);$('ln').innerHTML=UNITS[tab].map(card).join('')}
+ $('bs').hidden=!manager;$('be').hidden=!admin;$('be').textContent='Edit mode: '+(edit?'ON':'OFF');
+ $('who').innerHTML=esc(me.email)+' · '+(manager?'Manager':admin?'Admin':'Viewer')+' · <a href="#" id="so">Sign out</a>';
  renderSet()}
-function renderSet(){const s=$('set');s.hidden=!(showSet&&admin);if(s.hidden)return;
+function renderSet(){const s=$('set');s.hidden=!(showSet&&manager);if(s.hidden)return;
  if(s.contains(document.activeElement)&&document.activeElement.tagName==='INPUT')return;
  const ids=Object.keys(people);
- s.innerHTML=`<b>Factory Settings – People</b><div class="note">Add an email, then that person signs up with the same email. Admins can edit; viewers can only see.</div>
+ s.innerHTML=`<b>Factory Settings – People</b><div class="note">Only you (manager) can see and change this list. Add an email, then that person signs up with the same email.</div>
  ${ids.map(id=>`<div class="row"><span>${esc(id)} ${people[id].admin?'<b class="ok">· Admin</b>':'· Viewer'}</span><span><button class="g" data-adm="${esc(id)}">${people[id].admin?'Remove admin':'Make admin'}</button> <button class="d" data-rm="${esc(id)}">Delete</button></span></div>`).join('')||'<div class="note">No people added yet.</div>'}
  <div style="margin-top:8px"><input id="ne" type="email" placeholder="person@email.com" style="width:55%"> <select id="nr"><option value="v">Viewer</option><option value="a">Admin</option></select> <button id="ad">Add</button></div>`}
 const fail=e=>alert('Failed: '+(e.code||e.message));
 async function saveLine(l,k,i,val){const d=get(l);
  if(i!==undefined&&i!==''){const a=d[k].slice();a[i]=k==='note'?val:(val===''?null:+val);d[k]=a}else d[k]=(k==='workers'||k==='smv')?+val||0:val;
- d.date=today;data[l]=d;try{await setDoc(doc(db,'lines',`${today}_${l}`),d)}catch(e){fail(e)}}
+ data[l]=d;try{await setDoc(doc(db,'days',today),{L:{[l]:d}},{merge:true})}catch(e){fail(e)}}
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset.l)saveLine(t.dataset.l,t.dataset.k,t.dataset.i,t.value)});
 document.addEventListener('focusout',()=>setTimeout(()=>{if(pending)render()},50));
-document.addEventListener('click',async e=>{const t=e.target,D=t.dataset;
- if(t.id==='be'){edit=!edit;render()}if(t.id==='bs'){showSet=!showSet;render()}
- if(t.id==='so'){e.preventDefault();signOut(auth)}
+document.addEventListener('click',async e=>{const t=e.target,D=t.dataset,tg=t.closest('[data-tg]'),tb=t.closest('[data-tab]');
+ if(t.id==='be'){edit=!edit;render();return}if(t.id==='bs'){showSet=!showSet;render();return}
+ if(t.id==='so'){e.preventDefault();signOut(auth);return}
+ if(tb){tab=tb.dataset.tab;render();window.scrollTo(0,0);return}
+ if(tg&&!t.closest('input,textarea')){const l=tg.dataset.tg;op.has(l)?op.delete(l):op.add(l);render();return}
  try{
  if(D.adm)await setDoc(doc(db,'people',D.adm),{admin:!people[D.adm].admin});
  if(D.rm)await deleteDoc(doc(db,'people',D.rm));
@@ -105,7 +114,7 @@ document.addEventListener('click',async e=>{const t=e.target,D=t.dataset;
  }catch(x){fail(x)}});
 function authUI(msg,verify){const a=$('auth');a.hidden=false;$('app').hidden=true;
  a.innerHTML=verify?`<b>Verify your email</b><p>We sent a link to ${esc(verify)}. Open it, then tap continue.</p><button id="vc">Continue</button> <button class="g" id="so2">Sign out</button>`
- :`<b>Unit 7 – Sign in</b><p class="note">${esc(msg||'')}</p><input id="em" type="email" placeholder="Email" style="width:100%;margin-bottom:6px"><input id="pw" type="password" placeholder="Password (min 6)" style="width:100%;margin-bottom:8px"><button id="li">Sign in</button> <button class="g" id="su">Create account</button>`}
+ :`<b>Factory – Sign in</b><p class="note">${esc(msg||'')}</p><input id="em" type="email" placeholder="Email" style="width:100%;margin-bottom:6px"><input id="pw" type="password" placeholder="Password (min 6)" style="width:100%;margin-bottom:8px"><button id="li">Sign in</button> <button class="g" id="su">Create account</button>`}
 document.addEventListener('click',async e=>{const id=e.target.id;
  try{
  if(id==='li')await signInWithEmailAndPassword(auth,$('em').value.trim(),$('pw').value);
@@ -115,11 +124,11 @@ document.addEventListener('click',async e=>{const id=e.target.id;
  }catch(x){authUI('Error: '+(x.code||x.message))}});
 async function start(u){unsubs.forEach(f=>f());unsubs=[];
  if(!u.emailVerified){authUI('',u.email);return}
- me={email:u.email.toLowerCase()};const boot=me.email===BOOT_ADMIN.toLowerCase();admin=boot;
- try{const p=await getDoc(doc(db,'people',me.email));if(p.exists())admin=boot||!!p.data().admin;else if(!boot){authUI('Access not granted. Ask an admin to add '+me.email+'.');return}}
- catch(x){authUI('Access not granted. Ask an admin to add '+me.email+'.');return}
+ me={email:u.email.toLowerCase()};manager=me.email===BOOT_ADMIN.toLowerCase();admin=manager;
+ try{const p=await getDoc(doc(db,'people',me.email));if(p.exists())admin=manager||!!p.data().admin;else if(!manager){authUI('Access not granted. Ask the manager to add '+me.email+'.');return}}
+ catch(x){authUI('Access not granted. Ask the manager to add '+me.email+'.');return}
  $('auth').hidden=true;$('app').hidden=false;$('dt').textContent=today;$('st').textContent='Live';render();
- LINES.forEach(l=>unsubs.push(onSnapshot(doc(db,'lines',`${today}_${l}`),s=>{data[l]=s.exists()?s.data():null;render()},x=>{$('st').textContent='Sync error: '+x.code})));
- if(admin)unsubs.push(onSnapshot(collection(db,'people'),s=>{people={};s.forEach(d=>people[d.id]=d.data());render()}))}
+ unsubs.push(onSnapshot(doc(db,'days',today),s=>{data=s.exists()?(s.data().L||{}):{};render()},x=>{$('st').textContent='Sync error: '+x.code}));
+ if(manager)unsubs.push(onSnapshot(collection(db,'people'),s=>{people={};s.forEach(d=>people[d.id]=d.data());render()}))}
 onAuthStateChanged(auth,u=>{if(u)start(u);else{me=null;authUI('Sign in with your work email.')}});
 </script></body></html>
