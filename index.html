@@ -36,7 +36,7 @@ td input{width:46px;text-align:center}.meta input{width:100%}
 <div><button class="g" id="bs" hidden>Factory Settings</button> <button class="g" id="be" hidden>Edit mode: OFF</button></div></header>
 <div id="set" class="pan" hidden></div>
 <div class="tot" id="tot"></div><div id="ln"></div>
-<div class="note">Formulas — Available min = Workers × 450 (7.5 h full day) · Earned min = Output × SMV · Efficiency % = Earned ÷ Available × 100 · Lost time = Available − Earned (min) · Hours worked = fixed 7.5 h for everyone · Hourly Eff % = hour output × SMV ÷ (Workers × minutes in that hour).</div>
+<div class="note">Formulas — Available min = Workers × 450 (7.5 h full day) · Earned min = Output × SMV · Efficiency % = Earned ÷ Available × 100 · Lost time = Available − Earned (min) · Hours worked = fixed 7.5 h for everyone. Break 12:00–12:30.</div>
 
 <div class="note" id="who"></div></div>
 <script type="module">
@@ -46,7 +46,7 @@ import{getFirestore,doc,getDoc,setDoc,deleteDoc,collection,onSnapshot}from"https
 const BOOT_ADMIN="habibazein32@gmail.com";
 const app=initializeApp({apiKey:"AIzaSyDSZ50g_EX0l1Vn1ksxwM_qW7BeRAxeZDg",authDomain:"dashboard-unit-7.firebaseapp.com",projectId:"dashboard-unit-7",storageBucket:"dashboard-unit-7.firebasestorage.app",messagingSenderId:"44229398905",appId:"1:44229398905:web:8367c63cb0b66cfb041fa8"});
 const auth=getAuth(app),db=getFirestore(app);
-const LINES=['E1','E2','E3','E4','E5'],HRS=[9,10,11,12,13,14,15,16],DUR=[60,60,60,30,60,60,60,60],TOT=450,LBL=['9:00','10:00','11:00','12:00–12:30','1:00','2:00','3:00','4:00'];
+const LINES=['E1','E2','E3','E4','E5'],HRS=[9,10,11,12,13,14,15,16],DUR=[60,60,60,30,60,60,60,60],TOT=450,LBL=['9:00','10:00','11:00','12:30–1:00','1:00','2:00','3:00','4:00'];
 const DEF=['—','Open stitch','Skipped stitch','Broken stitch','Puckering','Oil stain','Uneven hem','Loose thread','Wrong measurement','Other'];
 const today=new Date().toISOString().slice(0,10);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -68,7 +68,6 @@ function render(){
  $('ln').innerHTML=LINES.map(l=>{const d=get(l),c=calc(d);
   T.w+=num(d.workers);T.out+=c.out;T.rep+=c.rep;T.dirty+=c.dirty;T.sec+=c.sec;T.av+=c.avail;T.ea+=c.earn;T.lost+=c.lost;
   const row=(n,k)=>`<tr><td>${n}</td>${HRS.map((h,i)=>`<td>${cell(l,k,i,d[k][i])}</td>`).join('')}<td><b>${c[k]}</b></td></tr>`;
-  const effRow=`<tr><td>Eff %</td>${HRS.map((h,i)=>{const a=num(d.workers)*DUR[i],has=d.out[i]!==null&&d.out[i]!=='',e=a&&has?num(d.out[i])*num(d.smv)/a*100:null;return`<td class="${e===null?'':effCls(e)}">${e===null?'':e.toFixed(0)+'%'}</td>`}).join('')}<td></td></tr>`;
   const noteRow=`<tr><td>Note</td>${HRS.map((h,i)=>`<td class="nt">${admin&&edit?`<input class="ni" data-l="${l}" data-k="note" data-i="${i}" type="text" value="${esc(d.note[i])}">`:esc(d.note[i])}</td>`).join('')}<td></td></tr>`;
   const def=admin&&edit?`<select data-l="${l}" data-k="defect">${DEF.map(x=>`<option ${x===d.defect?'selected':''}>${x}</option>`).join('')}</select>`:esc(d.defect);
   return`<div class="card"><div class="ch"><h2>Line ${l}</h2><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b></div>
@@ -77,7 +76,7 @@ function render(){
   <div class="kp"><div><b>${c.out}</b><span>Output</span></div><div><b class="${effCls(c.eff)}">${c.eff.toFixed(1)}%</b><span>Efficiency</span></div>
   <div><b>${c.lost.toFixed(0)} min</b><span>Lost time (${(c.lost/60).toFixed(1)} h)</span></div></div>
   <div class="sc"><table><tr><th>Hour</th>${LBL.map(x=>`<th>${x}</th>`).join('')}<th>Total</th></tr>
-  ${row('Output','out')}${row('Repairs','rep')}${row('Dirty','dirty')}${row('2nd grade','sec')}${effRow}${noteRow}</table></div>
+  ${row('Output','out')}${row('Repairs','rep')}${row('Dirty','dirty')}${row('2nd grade','sec')}${noteRow}</table></div>
   <div class="note">Hours worked: ${c.hrs} · Available ${c.avail} min · Earned ${c.earn.toFixed(0)} min</div></div>`}).join('');
  const eff=T.av?T.ea/T.av*100:0;
  $('tot').innerHTML=[['Workers',T.w],['Output',T.out],['Efficiency',eff.toFixed(1)+'%'],['Lost time',T.lost.toFixed(0)+' min'],['Repairs',T.rep],['Dirty',T.dirty],['2nd grade',T.sec]].map(([a,b])=>`<div class="k"><b>${b}</b><span>Unit 7 · ${a}</span></div>`).join('');
